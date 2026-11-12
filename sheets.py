@@ -5,13 +5,14 @@ from typing import Optional
 
 import gspread
 
-from matcher import HEADERS, STAGES, AppRow, parse_date
+from matcher import HEADERS, STAGES, THREAD_COL, AppRow, parse_date
 
 SEASONS_TAB = "Seasons"
 PROCESSED_TAB = "_processed"
 SEASON_HEADERS = ["Name", "Start", "End", "Active"]
 PROCESSED_HEADERS = ["Message ID", "Email Date", "Processed At", "Result"]
 RESERVED = {SEASONS_TAB, PROCESSED_TAB}
+LAST_COL = chr(ord("A") + len(HEADERS) - 1)
 
 
 def _has_data(values: list[str]) -> bool:
@@ -60,8 +61,12 @@ class Store:
         checkbox = {"condition": {"type": "BOOLEAN"}}
         self.sh.batch_update({"requests": [
             {"setDataValidation": {"range": col_range(2), "rule": stage_rule}},
-            {"setDataValidation": {"range": col_range(7), "rule": checkbox}},
-            {"setDataValidation": {"range": col_range(8), "rule": checkbox}},
+            {"setDataValidation": {"range": col_range(HEADERS.index("Locked")), "rule": checkbox}},
+            {"setDataValidation": {"range": col_range(HEADERS.index("Needs Review")), "rule": checkbox}},
+            {"updateDimensionProperties": {
+                "range": {"sheetId": ws.id, "dimension": "COLUMNS",
+                          "startIndex": THREAD_COL, "endIndex": THREAD_COL + 1},
+                "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}},
         ]})
 
     # ---- seasons -----------------------------------------------------------
@@ -119,7 +124,7 @@ class Store:
                 by_tab.setdefault(r.tab, []).append(r)
         for tab, tab_rows in by_tab.items():
             ws = self.sh.worksheet(tab)
-            updates = [{"range": f"A{r.row_num}:K{r.row_num}", "values": [r.to_values()]}
+            updates = [{"range": f"A{r.row_num}:{LAST_COL}{r.row_num}", "values": [r.to_values()]}
                        for r in tab_rows if r.row_num]
             if updates:
                 ws.batch_update(updates, value_input_option="RAW")
@@ -131,7 +136,7 @@ class Store:
                 end = start + len(new) - 1
                 if end > ws.row_count:
                     ws.add_rows(end - ws.row_count + 100)
-                ws.update(range_name=f"A{start}:K{end}", values=[r.to_values() for r in new],
+                ws.update(range_name=f"A{start}:{LAST_COL}{end}", values=[r.to_values() for r in new],
                           value_input_option="RAW")
                 for i, r in enumerate(new):
                     r.row_num = start + i

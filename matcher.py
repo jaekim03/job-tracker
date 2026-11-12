@@ -5,9 +5,10 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 HEADERS = [
-    "Company", "Role", "Stage", "Date Applied", "Last Update", "Last Email Subject",
+    "Company", "Role", "Stage", "Date Applied", "Last Update",
     "Gmail Link", "Locked", "Needs Review", "Notes", "Thread IDs",
 ]
+THREAD_COL = HEADERS.index("Thread IDs")  # hidden in the sheet; only used for matching
 STAGES = ["Applied", "OA", "Interview", "Offer", "Rejected", "Withdrawn", "Ghosted"]
 PROGRESS_RANK = {"Applied": 0, "OA": 1, "Interview": 2, "Offer": 3}
 TERMINAL = {"Rejected", "Withdrawn"}
@@ -24,7 +25,6 @@ class AppRow:
     stage: str = ""
     date_applied: str = ""
     last_update: str = ""
-    last_subject: str = ""
     gmail_link: str = ""
     locked: bool = False
     needs_review: bool = False
@@ -37,14 +37,14 @@ class AppRow:
         v = (values + [""] * len(HEADERS))[: len(HEADERS)]
         return cls(
             tab=tab, row_num=row_num, company=v[0], role=v[1], stage=v[2], date_applied=v[3],
-            last_update=v[4], last_subject=v[5], gmail_link=v[6],
-            locked=v[7].strip().upper() == "TRUE", needs_review=v[8].strip().upper() == "TRUE",
-            notes=v[9], thread_ids=[t for t in v[10].replace(" ", "").split(",") if t],
+            last_update=v[4], gmail_link=v[5],
+            locked=v[6].strip().upper() == "TRUE", needs_review=v[7].strip().upper() == "TRUE",
+            notes=v[8], thread_ids=[t for t in v[9].replace(" ", "").split(",") if t],
         )
 
     def to_values(self) -> list:
         return [
-            self.company, self.role, self.stage, self.date_applied, self.last_update, self.last_subject,
+            self.company, self.role, self.stage, self.date_applied, self.last_update,
             self.gmail_link, self.locked, self.needs_review, self.notes, ",".join(self.thread_ids),
         ]
 
@@ -159,7 +159,7 @@ def apply_email(row: AppRow, cls, email, review_threshold: float) -> list[str]:
         changes.append(f"role = {cls.role}")
     last = parse_date(row.last_update)
     if last is None or email.date.date() >= last:
-        row.last_update, row.last_subject, row.gmail_link = d, email.subject, email.link
+        row.last_update, row.gmail_link = d, email.link
     if email.thread_id not in row.thread_ids:
         row.thread_ids.append(email.thread_id)
     if cls.confidence < review_threshold or not row.company:

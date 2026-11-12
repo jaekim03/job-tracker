@@ -33,7 +33,7 @@ uv run track.py new-season "Spring 2027" --start 2027-01-01 --end 2027-05-31
 - **Needs Review**: low-confidence classification; check it.
 - Late emails for an older season's application update that season's row; new applications go to the season containing the email date.
 - Classifications are cached in `.cache/` so reruns don't cost API calls. Processed emails are logged in the hidden `_processed` tab.
-- Only columns A–K are written; add your own columns to the right.
+- Only columns A–J are written (J, Thread IDs, is hidden and used for matching); add your own columns to the right.
 
 ## Cost
 
