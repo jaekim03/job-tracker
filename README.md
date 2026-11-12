@@ -110,7 +110,7 @@ Until the secrets are set, runs are skipped with a notice. If your Google login 
 - **Login expiry.** While the OAuth app is in "Testing", Google expires the login every 7 days. Locally the script reopens the browser; publishing the app (see above) stops the expiry.
 - **Settings** such as `ghosted_days` and the Gmail search are in `config.yaml`.
 - **Secrets stay local.** `credentials.json`, `token.json`, `.env` and `config.yaml` are gitignored.
-- **Privacy.** See [PRIVACY.md](PRIVACY.md) for what's accessed and where data goes.
+- **Privacy.** See [PRIVACY.md](PRIVACY.md) for what's accessed and where data goes. The design and decisions are in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Cost
 
