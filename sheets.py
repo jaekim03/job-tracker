@@ -14,6 +14,12 @@ PROCESSED_HEADERS = ["Message ID", "Email Date", "Processed At", "Result"]
 RESERVED = {SEASONS_TAB, PROCESSED_TAB}
 
 
+def _has_data(values: list[str]) -> bool:
+    """A row counts as filled if Company, Role, or Stage is set (checkbox columns alone read as FALSE)."""
+    v = values + ["", "", ""]
+    return any(c.strip() for c in v[:3])
+
+
 @dataclass
 class Season:
     name: str
@@ -97,9 +103,14 @@ class Store:
                 continue
             values = self.sh.worksheet(s.name).get_all_values()
             for i, v in enumerate(values[1:], start=2):
-                if any(cell.strip() for cell in v):
+                if _has_data(v):
                     rows.append(AppRow.from_values(s.name, i, v))
         return rows
+
+    def _next_free_row(self, ws) -> int:
+        values = ws.get_all_values()
+        last = max((i for i, v in enumerate(values[1:], start=2) if _has_data(v)), default=1)
+        return last + 1
 
     def save_rows(self, rows: list[AppRow]) -> None:
         by_tab: dict[str, list[AppRow]] = {}
@@ -114,8 +125,16 @@ class Store:
                 ws.batch_update(updates, value_input_option="RAW")
             new = [r for r in tab_rows if not r.row_num]
             if new:
-                ws.append_rows([r.to_values() for r in new], value_input_option="RAW",
-                               table_range="A1")
+                # Write explicitly after the last real row: append_rows would skip past
+                # empty-but-checkbox rows (they read as FALSE) to the bottom of the sheet.
+                start = self._next_free_row(ws)
+                end = start + len(new) - 1
+                if end > ws.row_count:
+                    ws.add_rows(end - ws.row_count + 100)
+                ws.update(range_name=f"A{start}:K{end}", values=[r.to_values() for r in new],
+                          value_input_option="RAW")
+                for i, r in enumerate(new):
+                    r.row_num = start + i
 
     # ---- processed log -----------------------------------------------------
     def processed(self) -> dict[str, date]:

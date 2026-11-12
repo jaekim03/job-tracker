@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 from classifier import Classification
 from gmail_client import Email, _body_text
-from matcher import AppRow, apply_email, find_row, mark_ghosted, next_stage, normalize_company
+from matcher import (AppRow, apply_email, find_row, is_reapplication, mark_ghosted, next_stage,
+                     normalize_company)
 
 
 def email(day: str, thread="t1", subject="s"):
@@ -58,6 +59,19 @@ def test_different_roles_same_company_and_thread_stay_separate():
     other = "Internship, Software Engineer, Maps & Navigation Validation (Fall 2026)"
     assert find_row(rows, "Tesla", other, "tesla-thread") is None
     assert find_row(rows, "Tesla", "Software Integration Engineer Intern, Service Tooling", "x") is r
+
+
+def test_reapplication_after_rejection():
+    r = AppRow(tab="F", row_num=2, company="Tesla", stage="Rejected", last_update="2026-08-01")
+    assert is_reapplication(r, "Applied", date(2026, 10, 9))
+    assert not is_reapplication(r, "Applied", date(2026, 8, 5))  # same-day/near confirmation
+    assert not is_reapplication(r, "Interview", date(2026, 10, 9))
+
+
+def test_has_data_ignores_checkboxes():
+    from sheets import _has_data
+    assert not _has_data(["", "", "", "", "", "", "", "FALSE", "FALSE", "", ""])
+    assert _has_data(["Acme", "", "", "", "", "", "", "FALSE", "FALSE", "", ""])
 
 
 def test_locked_row_untouched():

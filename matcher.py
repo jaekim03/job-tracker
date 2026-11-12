@@ -94,6 +94,7 @@ def find_row(rows: list[AppRow], company: str, role: str, thread_id: str) -> Opt
     def compatible(r: AppRow) -> bool:
         return not role or not r.role or role_match(role, r.role)
 
+    rows = rows[::-1]  # newest first: a re-application row wins over the older closed one
     # Same Gmail thread, unless the roles clearly differ (Gmail threads same-subject ATS emails together).
     for r in rows:
         if thread_id in r.thread_ids and compatible(r):
@@ -114,6 +115,14 @@ def find_row(rows: list[AppRow], company: str, role: str, thread_id: str) -> Opt
     if len(open_rows) == 1:
         return open_rows[0]
     return same[0] if len(same) == 1 else None
+
+
+def is_reapplication(row: AppRow, new_stage: str, email_date: date) -> bool:
+    """A new 'Applied' email well after a closed application = a fresh application (e.g. next term's posting)."""
+    if new_stage != "Applied" or row.stage not in TERMINAL:
+        return False
+    last = parse_date(row.last_update)
+    return last is not None and email_date - last > timedelta(days=14)
 
 
 def next_stage(current: str, new: str) -> str:

@@ -37,7 +37,7 @@ def cmd_run(args) -> None:
     from classifier import classify_all
     from gmail_client import fetch, gmail_service, search
     from google_auth import get_credentials
-    from matcher import AppRow, apply_email, find_row
+    from matcher import AppRow, apply_email, find_row, is_reapplication
     from sheets import Store
 
     cfg = load_config()
@@ -85,6 +85,8 @@ def cmd_run(args) -> None:
             log.append((e.id, e.date.date(), "not application"))
             continue
         row = find_row(rows, c.company, c.role, e.thread_id)
+        if row is not None and is_reapplication(row, c.stage, e.date.date()):
+            row = None
         if row is None:
             if c.stage == "Other":
                 log.append((e.id, e.date.date(), f"other/no match: {c.company}"))

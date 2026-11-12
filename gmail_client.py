@@ -7,6 +7,8 @@ from datetime import datetime
 
 from googleapiclient.discovery import build
 
+RETRIES = 8  # exponential backoff on Gmail rate-limit (403/429) and 5xx errors
+
 
 @dataclass
 class Email:
@@ -29,7 +31,7 @@ def gmail_service(creds):
 def search(service, query: str) -> list[str]:
     ids, token = [], None
     while True:
-        resp = service.users().messages().list(userId="me", q=query, pageToken=token, maxResults=500).execute()
+        resp = service.users().messages().list(userId="me", q=query, pageToken=token, maxResults=500).execute(num_retries=RETRIES)
         ids += [m["id"] for m in resp.get("messages", [])]
         token = resp.get("nextPageToken")
         if not token:
@@ -37,7 +39,7 @@ def search(service, query: str) -> list[str]:
 
 
 def fetch(service, msg_id: str, max_chars: int) -> Email:
-    msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
+    msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute(num_retries=RETRIES)
     headers = {h["name"].lower(): h["value"] for h in msg["payload"].get("headers", [])}
     return Email(
         id=msg["id"],
