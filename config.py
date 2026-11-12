@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,5 +29,9 @@ def load_config() -> Config:
     data = yaml.safe_load(CONFIG_PATH.read_text()) or {}
     if not data.get("spreadsheet_id") or "PASTE" in data["spreadsheet_id"]:
         raise SystemExit("Set spreadsheet_id in config.yaml.")
+    # Accept a full sheet URL as well as a bare ID.
+    m = re.search(r"/d/([A-Za-z0-9_-]+)", data["spreadsheet_id"])
+    if m:
+        data["spreadsheet_id"] = m.group(1)
     known = Config.__dataclass_fields__.keys()
     return Config(**{k: v for k, v in data.items() if k in known})

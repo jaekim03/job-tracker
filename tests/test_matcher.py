@@ -49,6 +49,17 @@ def test_full_lifecycle_and_matching():
     assert find_row(rows, "", "", "t2") is r
 
 
+def test_different_roles_same_company_and_thread_stay_separate():
+    rows = []
+    r = AppRow(tab="F", row_num=None)
+    rows.append(r)
+    apply_email(r, cls("Tesla", "Internship, Software Integration Engineer, Service Tooling (Fall 2026)", "Rejected"),
+                email("2026-08-01", "tesla-thread"), 0.7)
+    other = "Internship, Software Engineer, Maps & Navigation Validation (Fall 2026)"
+    assert find_row(rows, "Tesla", other, "tesla-thread") is None
+    assert find_row(rows, "Tesla", "Software Integration Engineer Intern, Service Tooling", "x") is r
+
+
 def test_locked_row_untouched():
     r = AppRow(tab="F", row_num=2, company="Acme", stage="Interview", locked=True)
     apply_email(r, cls("Acme", "", "Rejected"), email("2026-10-01"), 0.7)
