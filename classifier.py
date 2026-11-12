@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from config import CACHE_DIR, LLMConfig
 from gmail_client import Email
+from output import detail
 
 CACHE_FILE = CACHE_DIR / "classifications.json"
 
@@ -59,7 +60,7 @@ def _email_text(email: Email) -> str:
 
 
 def _warn(email: Email, msg: str) -> None:
-    print(f"  ! {msg} on '{email.subject[:60]}'")
+    detail(f"  ! {msg} on '{email.subject[:60]}'")
 
 
 def _api_key(cfg: LLMConfig) -> Optional[str]:
@@ -176,7 +177,7 @@ def classify_all(emails: list[Email], workers: int, llm: LLMConfig) -> dict[str,
         else:
             todo.append(e)
     if todo:
-        print(f"Classifying {len(todo)} emails with {llm.provider}/{llm.model} "
+        detail(f"Classifying {len(todo)} emails with {llm.provider}/{llm.model} "
               f"({len(emails) - len(todo)} cached)...")
         classify = make_classifier(llm)
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -185,7 +186,7 @@ def classify_all(emails: list[Email], workers: int, llm: LLMConfig) -> dict[str,
                 if c is not None:
                     cache[e.id] = c.model_dump()
                 if i % 25 == 0:
-                    print(f"  {i}/{len(todo)}")
+                    detail(f"  {i}/{len(todo)}")
                     _save_cache(cache)
         _save_cache(cache)
     return results

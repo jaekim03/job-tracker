@@ -2,13 +2,15 @@
 
   uv run track.py auth
   uv run track.py new-season "Fall 2026" --start 2026-08-01 --end 2026-12-31
-  uv run track.py run [--dry-run] [--limit N] [--since YYYY-MM-DD]
+  uv run track.py run [--dry-run] [--limit N] [--since YYYY-MM-DD] [--quiet]
   uv run track.py style
 """
 import argparse
+import sys
 from datetime import date, datetime, timedelta
 
 from config import load_config
+from output import detail, in_ci, info, is_quiet, safe_error, set_quiet
 
 
 def _date(s: str) -> date:
@@ -72,9 +74,9 @@ def cmd_run(args) -> None:
     ids.reverse()  # Gmail returns newest first; process oldest first
     if args.limit:
         ids = ids[: args.limit]
-    print(f"{len(ids)} new candidate emails since {since}.")
+    detail(f"{len(ids)} new candidate emails since {since}.")
     if not ids:
-        _ghost_and_save(store, store.load_rows(seasons), cfg, today, args.dry_run, [])
+        _ghost_and_save(store, store.load_rows(seasons), cfg, today, args.dry_run, [], 0, 0)
         return
 
     account = account_email(gmail)
@@ -82,10 +84,11 @@ def cmd_run(args) -> None:
     for n, mid in enumerate(ids, 1):
         emails.append(fetch(gmail, mid, cfg.max_body_chars, account))
         if n % 50 == 0:
-            print(f"  fetched {n}/{len(ids)}")
+            detail(f"  fetched {n}/{len(ids)}")
     emails.sort(key=lambda e: e.date)
 
     results = classify_all(emails, cfg.workers, cfg.llm)
+    failed = sum(1 for e in emails if results.get(e.id) is None)
     rows = store.load_rows(seasons)
     log: list[tuple[str, date, str]] = []
 
@@ -111,26 +114,33 @@ def cmd_run(args) -> None:
             label = "upd"
         changes = apply_email(row, c, e)
         summary = f"{c.company or '?'} | {c.role or '-'} | {c.stage}"
-        print(f"{e.date:%Y-%m-%d} {label} [{row.tab}] {summary}" + (f"  ({'; '.join(changes)})" if changes else ""))
+        detail(f"{e.date:%Y-%m-%d} {label} [{row.tab}] {summary}" + (f"  ({'; '.join(changes)})" if changes else ""))
         log.append((e.id, e.date.date(), summary))
 
-    _ghost_and_save(store, rows, cfg, today, args.dry_run, log)
+    _ghost_and_save(store, rows, cfg, today, args.dry_run, log, len(ids), failed)
 
 
-def _ghost_and_save(store, rows, cfg, today, dry_run, log) -> None:
+def _ghost_and_save(store, rows, cfg, today, dry_run, log, n_emails, failed) -> None:
     from matcher import mark_ghosted, sync_reached
 
     sync_reached(rows)
-    for r in mark_ghosted(rows, cfg.ghosted_days, today):
-        print(f"ghosted [{r.tab}] {r.company} | {r.role}")
+    ghosted = mark_ghosted(rows, cfg.ghosted_days, today)
+    for r in ghosted:
+        detail(f"ghosted [{r.tab}] {r.company} | {r.role}")
     dirty = [r for r in rows if r.dirty]
     new = sum(1 for r in dirty if r.row_num is None)
-    if dry_run:
-        print(f"\nDry run: would add {new} rows, update {len(dirty) - new}, log {len(log)} emails. Nothing written.")
-        return
-    store.save_rows(rows)
-    store.log_processed(log)
-    print(f"\nDone: added {new} rows, updated {len(dirty) - new}, logged {len(log)} emails.")
+    if failed:
+        info(f"{failed} email(s) failed to classify; they'll be retried next run.")
+    if not dry_run:
+        store.save_rows(rows)
+        store.log_processed(log)
+    if is_quiet():
+        prefix = "Dry run (nothing written): " if dry_run else ""
+        info(f"{prefix}{n_emails} new emails · {new} added · {len(dirty) - new} updated · {len(ghosted)} ghosted")
+    elif dry_run:
+        info(f"\nDry run: would add {new} rows, update {len(dirty) - new}, log {len(log)} emails. Nothing written.")
+    else:
+        info(f"\nDone: added {new} rows, updated {len(dirty) - new}, logged {len(log)} emails.")
 
 
 def main() -> None:
@@ -151,10 +161,22 @@ def main() -> None:
     r.add_argument("--dry-run", action="store_true", help="Print changes without writing")
     r.add_argument("--limit", type=int, help="Only process the N oldest new emails")
     r.add_argument("--since", type=_date, help="Override scan start date")
+    r.add_argument("--quiet", action="store_true",
+                   help="Print counts only, no email details (automatic on GitHub Actions)")
     r.set_defaults(fn=cmd_run)
 
     args = p.parse_args()
-    args.fn(args)
+    set_quiet(getattr(args, "quiet", False) or in_ci())
+    try:
+        args.fn(args)
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception as e:  # noqa: BLE001 - last-resort handler
+        if not is_quiet():
+            raise
+        # Full tracebacks can include message IDs and URLs; keep public logs clean.
+        info(f"Error: {safe_error(e)}. Run locally for details.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

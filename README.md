@@ -68,9 +68,37 @@ uv run track.py run --dry-run --limit 20   # preview 20 emails, writes nothing
 uv run track.py run                        # update the sheet
 uv run track.py new-season "Spring 2027" --start 2027-01-01 --end 2027-05-31
 uv run track.py style                      # reapply formatting and rebuild the Stats tab
+uv run track.py run --quiet                # counts only, no company/role details
 ```
 
 The first run scans from the season's start date. Later runs only look at new emails.
+
+## Automate with GitHub Actions
+
+The included workflow ([`.github/workflows/track.yml`](.github/workflows/track.yml)) runs the tracker every day at 15:00 UTC, so the sheet stays current without your computer on. On a public repo the logs are public, so on GitHub Actions the script prints counts only:
+
+```
+5 new emails · 1 added · 3 updated · 0 ghosted
+```
+
+1. **Keep your Google login from expiring.** In the Google Cloud console, open your OAuth consent screen (Google Auth Platform → Audience) and click **Publish app** to move it from Testing to **In production**. For personal use no review is needed. Then log in again, since logins made while in Testing still expire after 7 days:
+   ```bash
+   uv run track.py auth
+   ```
+2. **Upload your secrets** (encrypted by GitHub; nobody can read them back):
+   ```bash
+   gh secret set GOOGLE_CREDENTIALS < credentials.json
+   gh secret set GOOGLE_TOKEN < token.json
+   gh secret set CONFIG_YAML < config.yaml
+   gh secret set ANTHROPIC_API_KEY
+   ```
+   The last command prompts for the key. Use your provider's key name if it isn't Anthropic (see the table above).
+3. **Test it**: Actions tab → **Update tracker** → **Run workflow**, or:
+   ```bash
+   gh workflow run track.yml
+   ```
+
+Until the secrets are set, runs are skipped with a notice. If your Google login ever expires, the run fails with instructions: run `uv run track.py auth` locally and repeat the `GOOGLE_TOKEN` command. Using a fork? Enable Actions on it first, because GitHub turns off scheduled workflows in forks. GitHub also pauses schedules after 60 days without commits; re-enable them from the Actions tab.
 
 ## Good to know
 
@@ -79,7 +107,7 @@ The first run scans from the season's start date. Later runs only look at new em
 - **Seasons.** A late reply to an old application updates its row in the old season's tab.
 - **Re-applying.** A new confirmation more than 14 days after a rejection starts a new row.
 - **Your own columns** go to the right of column I. Columns H–I (Thread IDs, Reached) are hidden and used by the script.
-- **Login expiry.** While the OAuth app is in "Testing", Google expires the login every 7 days. The script reopens the browser when that happens.
+- **Login expiry.** While the OAuth app is in "Testing", Google expires the login every 7 days. Locally the script reopens the browser; publishing the app (see above) stops the expiry.
 - **Settings** such as `ghosted_days` and the Gmail search are in `config.yaml`.
 - **Secrets stay local.** `credentials.json`, `token.json`, `.env` and `config.yaml` are gitignored.
 

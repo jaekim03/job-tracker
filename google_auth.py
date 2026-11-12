@@ -5,6 +5,11 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from config import CREDENTIALS_PATH, TOKEN_PATH
+from output import in_ci
+
+RELOGIN_HELP = ("Google login is missing or expired, and there's no browser here to log in. "
+                "On your computer run `uv run track.py auth`, then update the secret: "
+                "gh secret set GOOGLE_TOKEN < token.json")
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -24,7 +29,11 @@ def get_credentials(force_login: bool = False) -> Credentials:
             TOKEN_PATH.write_text(creds.to_json())
             return creds
         except RefreshError:
+            if in_ci():
+                raise SystemExit(RELOGIN_HELP)
             print("Google login expired; opening browser to log in again.")
+    if in_ci():
+        raise SystemExit(RELOGIN_HELP)
     if not CREDENTIALS_PATH.exists():
         raise SystemExit("credentials.json not found. See README > One-time setup.")
     flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_PATH), SCOPES)

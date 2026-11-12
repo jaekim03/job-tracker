@@ -1,0 +1,67 @@
+# Updates the tracker sheet every day on GitHub's servers.
+# One-time setup (secrets, Google login): see README > "Automate with GitHub Actions".
+name: Update tracker
+
+on:
+  schedule:
+    - cron: "0 15 * * *"   # daily at 15:00 UTC (7am PST / 8am PDT)
+  workflow_dispatch:        # "Run workflow" button in the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tracker
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        id: secrets
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_TOKEN: ${{ secrets.GOOGLE_TOKEN }}
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: |
+          missing=""
+          for name in GOOGLE_CREDENTIALS GOOGLE_TOKEN CONFIG_YAML; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::Skipping: secrets not set:$missing (see README)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.secrets.outputs.ready == 'true'
+
+      - name: Write config and Google login from secrets
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_TOKEN: ${{ secrets.GOOGLE_TOKEN }}
+          CONFIG_YAML: ${{ secrets.CONFIG_YAML }}
+        run: |
+          umask 077
+          printf '%s' "$GOOGLE_CREDENTIALS" > credentials.json
+          printf '%s' "$GOOGLE_TOKEN" > token.json
+          printf '%s' "$CONFIG_YAML" > config.yaml
+
+      - name: Update the sheet
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          # Only the key for the provider in config.yaml is needed; unset ones are ignored.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: uv run --frozen track.py run   # quiet automatically on GitHub Actions
