@@ -118,3 +118,11 @@ def test_style_requests_cover_every_stage():
     kinds = [next(iter(r)) for r in reqs]
     assert kinds.count("deleteConditionalFormatRule") == 2
     assert kinds.count("addConditionalFormatRule") == len(STAGES) + 1
+
+
+def test_message_link_targets_account():
+    from gmail_client import message_id_from_link, message_link
+    url = message_link("19fbe9757445876f", "someone@school.edu")
+    assert url == "https://mail.google.com/mail/?authuser=someone%40school.edu#all/19fbe9757445876f"
+    assert message_id_from_link(url) == "19fbe9757445876f"
+    assert message_id_from_link("https://mail.google.com/mail/u/0/#all/abc123") == "abc123"

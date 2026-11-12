@@ -4,6 +4,7 @@ import html
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import quote
 
 from googleapiclient.discovery import build
 
@@ -18,10 +19,30 @@ class Email:
     sender: str
     subject: str
     body: str
+    account: str = ""
 
     @property
     def link(self) -> str:
-        return f"https://mail.google.com/mail/u/0/#all/{self.id}"
+        return message_link(self.id, self.account)
+
+
+def message_link(msg_id: str, account: str = "") -> str:
+    """Gmail web link that opens in the given account, even if another account is signed in first."""
+    if account:
+        return f"https://mail.google.com/mail/?authuser={quote(account)}#all/{msg_id}"
+    return f"https://mail.google.com/mail/#all/{msg_id}"
+
+
+_MSG_ID_RE = re.compile(r"#(?:all|inbox)/([0-9a-f]+)$")
+
+
+def message_id_from_link(url: str) -> str:
+    m = _MSG_ID_RE.search(url or "")
+    return m.group(1) if m else ""
+
+
+def account_email(service) -> str:
+    return service.users().getProfile(userId="me").execute(num_retries=RETRIES)["emailAddress"]
 
 
 def gmail_service(creds):
@@ -38,7 +59,7 @@ def search(service, query: str) -> list[str]:
             return ids
 
 
-def fetch(service, msg_id: str, max_chars: int) -> Email:
+def fetch(service, msg_id: str, max_chars: int, account: str = "") -> Email:
     msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute(num_retries=RETRIES)
     headers = {h["name"].lower(): h["value"] for h in msg["payload"].get("headers", [])}
     return Email(
@@ -48,6 +69,7 @@ def fetch(service, msg_id: str, max_chars: int) -> Email:
         sender=headers.get("from", ""),
         subject=headers.get("subject", ""),
         body=_body_text(msg["payload"])[:max_chars],
+        account=account,
     )
 
 

@@ -45,7 +45,7 @@ def cmd_style(_args) -> None:
 
 def cmd_run(args) -> None:
     from classifier import classify_all
-    from gmail_client import fetch, gmail_service, search
+    from gmail_client import account_email, fetch, gmail_service, search
     from google_auth import get_credentials
     from matcher import AppRow, apply_email, find_row, is_reapplication
     from sheets import Store
@@ -76,9 +76,10 @@ def cmd_run(args) -> None:
         _ghost_and_save(store, store.load_rows(seasons), cfg, today, args.dry_run, [])
         return
 
+    account = account_email(gmail)
     emails = []
     for n, mid in enumerate(ids, 1):
-        emails.append(fetch(gmail, mid, cfg.max_body_chars))
+        emails.append(fetch(gmail, mid, cfg.max_body_chars, account))
         if n % 50 == 0:
             print(f"  fetched {n}/{len(ids)}")
     emails.sort(key=lambda e: e.date)
