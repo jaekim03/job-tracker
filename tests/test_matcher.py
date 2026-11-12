@@ -126,3 +126,62 @@ def test_message_link_targets_account():
     assert url == "https://mail.google.com/mail/?authuser=someone%40school.edu#all/19fbe9757445876f"
     assert message_id_from_link(url) == "19fbe9757445876f"
     assert message_id_from_link("https://mail.google.com/mail/u/0/#all/abc123") == "abc123"
+
+
+def test_reached_tracks_every_progress_stage():
+    r = AppRow(tab="F", row_num=None)
+    apply_email(r, cls("Acme", "SWE", "Applied"), email("2026-09-01"))
+    apply_email(r, cls("Acme", "SWE", "OA"), email("2026-09-05"))
+    apply_email(r, cls("Acme", "SWE", "Rejected"), email("2026-09-20"))
+    assert r.stage == "Rejected" and r.reached == ["Applied", "OA"]
+
+    first_email_is_rejection = AppRow(tab="F", row_num=None)
+    apply_email(first_email_is_rejection, cls("Initech", "PM", "Rejected"), email("2026-09-01"))
+    assert first_email_is_rejection.reached == ["Applied"]
+
+
+def test_sync_reached_picks_up_manual_stage():
+    from matcher import sync_reached
+    r = AppRow(tab="F", row_num=2, company="Acme", stage="Interview", reached=["Applied"])
+    assert sync_reached([r]) == 1 and r.reached == ["Applied", "Interview"] and r.dirty
+    assert sync_reached([r]) == 0
+
+
+def test_stats_layout():
+    from matcher import STAGES
+    from sheet_style import KPI_ROW, KPIS, STAGE_ROW, STATS_COLS, stats_values
+    grid = stats_values()
+    assert all(len(r) == STATS_COLS for r in grid)
+    assert grid[KPI_ROW - 2] == KPIS
+    assert [grid[STAGE_ROW - 1 + i][0] for i in range(len(STAGES))] == STAGES
+    # Formulas read the season picked in B2, using the Stage (C) and Reached (I) columns
+    assert "$B$2" in grid[KPI_ROW - 1][0] and "!I2:I" in grid[KPI_ROW - 1][3]
+
+
+def test_pipeline_flows_apps_script():
+    """Runs the Apps Script's pure flow logic under Node, if Node is installed."""
+    import json, shutil, subprocess
+    import pytest
+    from pathlib import Path
+    if not shutil.which("node"):
+        pytest.skip("node not installed")
+    rows = [
+        {"stage": "Applied", "reached": "Applied"},             # no response
+        {"stage": "Rejected", "reached": "Applied"},            # rejected right away
+        {"stage": "Rejected", "reached": "Applied,OA"},         # rejected after OA
+        {"stage": "Interview", "reached": "Applied,OA,Interview"},  # in progress
+        {"stage": "Ghosted", "reached": "Applied"},
+        {"stage": "Interview", "reached": "Applied"},           # stage set by hand, Reached not synced yet
+    ]
+    script = Path(__file__).parent.parent / "apps_script" / "Pipeline.gs"
+    js = (f"const m=require('module');const p={json.dumps(str(script))};"
+          f"const mod=new m(p);mod.paths=[];mod._compile(require('fs').readFileSync(p,'utf8'),p);"
+          f"console.log(JSON.stringify(mod.exports.pipelineFlows({json.dumps(rows)})))")
+    out = json.loads(subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout)
+    edges = {(a, b): n for a, b, n in out["edges"]}
+    assert edges == {
+        ("Applied", "OA"): 2, ("Applied", "Interview"): 1, ("OA", "Interview"): 1,
+        ("Applied", "No response"): 1, ("Applied", "Ghosted"): 1,
+        ("Applied", "Rejected"): 1, ("OA", "Rejected"): 1,
+    }
+    assert out["totals"]["Applied"] == 6 and out["totals"]["Interview"] == 2

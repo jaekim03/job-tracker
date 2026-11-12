@@ -10,6 +10,8 @@ Each run finds recruiting emails, asks Claude Haiku what each one means, and upd
 
 **Stages:** Applied → OA → Interview → Offer, plus Rejected, Withdrawn and Ghosted (no email for 60 days).
 
+A **Stats** tab shows totals, response, OA and interview rates, and a breakdown by stage. A **Pipeline** menu draws a flow chart of where your applications went.
+
 ## Setup
 
 You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic API key](https://platform.claude.com).
@@ -38,6 +40,8 @@ You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic AP
    uv run track.py new-season "Fall 2026" --start 2026-08-01 --end 2026-12-31
    ```
 
+6. **Pipeline chart (optional)**: in the sheet, open **Extensions → Apps Script**, replace the contents of `Code.gs` with [`apps_script/Pipeline.gs`](apps_script/Pipeline.gs), click Save, then reload the sheet. Use **Pipeline → Show pipeline**. Google asks you to authorize the script the first time.
+
 **School or work account?** If it won't let you create a Cloud project, create the project with a personal Google account, add your school address as a test user, and log in with the school account in step 5.
 
 ## Usage
@@ -46,7 +50,7 @@ You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic AP
 uv run track.py run --dry-run --limit 20   # preview 20 emails, writes nothing
 uv run track.py run                        # update the sheet
 uv run track.py new-season "Spring 2027" --start 2027-01-01 --end 2027-05-31
-uv run track.py style                      # reapply the sheet's formatting
+uv run track.py style                      # reapply formatting and rebuild the Stats tab
 ```
 
 The first run scans from the season's start date. Later runs only look at new emails.
@@ -57,7 +61,7 @@ The first run scans from the season's start date. Later runs only look at new em
 - **Editing by hand is fine.** A row only changes when a new email for that application arrives, and stages only move forward.
 - **Seasons.** A late reply to an old application updates its row in the old season's tab.
 - **Re-applying.** A new confirmation more than 14 days after a rejection starts a new row.
-- **Your own columns** go to the right of column H. Column H (Thread IDs) is hidden and used for matching.
+- **Your own columns** go to the right of column I. Columns H–I (Thread IDs, Reached) are hidden and used by the script.
 - **Login expiry.** While the OAuth app is in "Testing", Google expires the login every 7 days. The script reopens the browser when that happens.
 - **Settings** such as `ghosted_days` and the Gmail search are in `config.yaml`.
 - **Secrets stay local.** `credentials.json`, `token.json`, `.env` and `config.yaml` are gitignored.

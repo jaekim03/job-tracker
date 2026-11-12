@@ -53,6 +53,7 @@ def cmd_run(args) -> None:
     cfg = load_config()
     creds = get_credentials()
     store = Store(creds, cfg.spreadsheet_id)
+    store.ensure_schema()
     seasons = store.seasons()
     if not seasons:
         raise SystemExit('No seasons yet. Run: uv run track.py new-season "Fall 2026" '
@@ -117,8 +118,9 @@ def cmd_run(args) -> None:
 
 
 def _ghost_and_save(store, rows, cfg, today, dry_run, log) -> None:
-    from matcher import mark_ghosted
+    from matcher import mark_ghosted, sync_reached
 
+    sync_reached(rows)
     for r in mark_ghosted(rows, cfg.ghosted_days, today):
         print(f"ghosted [{r.tab}] {r.company} | {r.role}")
     dirty = [r for r in rows if r.dirty]

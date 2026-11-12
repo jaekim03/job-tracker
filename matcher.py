@@ -6,9 +6,10 @@ from typing import Optional
 
 HEADERS = [
     "Company", "Role", "Stage", "Date Applied", "Last Update",
-    "Gmail Link", "Notes", "Thread IDs",
+    "Gmail Link", "Notes", "Thread IDs", "Reached",
 ]
-THREAD_COL = HEADERS.index("Thread IDs")  # hidden in the sheet; only used for matching
+THREAD_COL = HEADERS.index("Thread IDs")  # this and later columns are hidden; used by the script
+REACHED_COL = HEADERS.index("Reached")    # progress stages ever reached, e.g. "Applied,OA,Interview"
 STAGES = ["Applied", "OA", "Interview", "Offer", "Rejected", "Withdrawn", "Ghosted"]
 PROGRESS_RANK = {"Applied": 0, "OA": 1, "Interview": 2, "Offer": 3}
 TERMINAL = {"Rejected", "Withdrawn"}
@@ -28,6 +29,7 @@ class AppRow:
     gmail_link: str = ""
     notes: str = ""
     thread_ids: list[str] = field(default_factory=list)
+    reached: list[str] = field(default_factory=list)
     dirty: bool = False
 
     @classmethod
@@ -37,12 +39,13 @@ class AppRow:
             tab=tab, row_num=row_num, company=v[0], role=v[1], stage=v[2], date_applied=v[3],
             last_update=v[4], gmail_link=v[5],
             notes=v[6], thread_ids=[t for t in v[7].replace(" ", "").split(",") if t],
+            reached=[t for t in v[8].replace(" ", "").split(",") if t],
         )
 
     def to_values(self) -> list:
         return [
             self.company, self.role, self.stage, self.date_applied, self.last_update,
-            self.gmail_link, self.notes, ",".join(self.thread_ids),
+            self.gmail_link, self.notes, ",".join(self.thread_ids), ",".join(self.reached),
         ]
 
 
@@ -157,8 +160,31 @@ def apply_email(row: AppRow, cls, email) -> list[str]:
         row.last_update, row.gmail_link = d, email.link
     if email.thread_id not in row.thread_ids:
         row.thread_ids.append(email.thread_id)
+    add_reached(row, cls.stage)  # even if the visible stage can't move (e.g. late interview email)
     row.dirty = True
     return changes
+
+
+def add_reached(row: AppRow, stage: str) -> bool:
+    """Record a progress stage (plus Applied, implied by any application). Returns True if changed."""
+    want = set(row.reached) | {"Applied"}
+    if stage in PROGRESS_RANK:
+        want.add(stage)
+    ordered = sorted(want & PROGRESS_RANK.keys(), key=PROGRESS_RANK.get)
+    if ordered == row.reached:
+        return False
+    row.reached = ordered
+    return True
+
+
+def sync_reached(rows: list[AppRow]) -> int:
+    """Pick up stages set by hand in the sheet. Returns how many rows changed."""
+    n = 0
+    for r in rows:
+        if add_reached(r, r.stage):
+            r.dirty = True
+            n += 1
+    return n
 
 
 def mark_ghosted(rows: list[AppRow], days: int, today: date) -> list[AppRow]:

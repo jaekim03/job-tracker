@@ -8,13 +8,14 @@ import gspread
 from gspread.utils import ValueRenderOption
 
 from matcher import HEADERS, AppRow, parse_date
-from sheet_style import plain_tab_requests, season_tab_requests
+from sheet_style import (STATS_COLS, STATS_TAB, plain_tab_requests, season_tab_requests, stats_tab_requests,
+                         stats_values)
 
 SEASONS_TAB = "Seasons"
 PROCESSED_TAB = "_processed"
 SEASON_HEADERS = ["Name", "Start", "End", "Active"]
 PROCESSED_HEADERS = ["Message ID", "Email Date", "Processed At", "Result"]
-RESERVED = {SEASONS_TAB, PROCESSED_TAB}
+RESERVED = {SEASONS_TAB, PROCESSED_TAB, STATS_TAB}
 LINK_COL = HEADERS.index("Gmail Link")
 LINK_LABEL = "Open"
 _LINK_RE = re.compile(r'HYPERLINK\(\s*"([^"]+)"', re.I)
@@ -75,8 +76,24 @@ class Store:
         self._titles.add(title)
         return ws
 
+    def ensure_schema(self) -> None:
+        """Bring older season tabs up to the current HEADERS (adds new columns at the end)."""
+        for s in self.seasons():
+            if s.name not in self._titles:
+                continue
+            ws = self.sh.worksheet(s.name)
+            head = ws.row_values(1)
+            if head == HEADERS:
+                continue
+            if head != HEADERS[: len(head)]:
+                raise SystemExit(f"Tab '{s.name}' has unexpected headers {head}; fix row 1 by hand.")
+            if ws.col_count < len(HEADERS):
+                ws.add_cols(len(HEADERS) - ws.col_count)
+            ws.update(range_name="A1", values=[HEADERS])
+
     def apply_style(self) -> list[str]:
         """(Re)apply the look to every season tab and the Seasons tab; active season goes first."""
+        self.ensure_schema()
         meta = self.sh.fetch_sheet_metadata(
             {"fields": "sheets(properties(sheetId),conditionalFormats)"})
         rule_counts = {s["properties"]["sheetId"]: len(s.get("conditionalFormats", []))
@@ -95,9 +112,30 @@ class Store:
             reqs.append({"updateSheetProperties": {
                 "properties": {"sheetId": self.sh.worksheet(active.name).id, "index": 0},
                 "fields": "index"}})
+        if active:
+            stats = self._ensure_stats(active.name)
+            reqs += stats_tab_requests(stats.id, stats.row_count)
+            reqs.append({"updateSheetProperties": {
+                "properties": {"sheetId": stats.id, "index": 1}, "fields": "index"}})
         if reqs:
             self.sh.batch_update({"requests": reqs})
         return styled
+
+    def _ensure_stats(self, default_season: str):
+        """Create or refresh the Stats tab, keeping whichever season is picked in B2."""
+        names = {s.name for s in self.seasons()}
+        if STATS_TAB in self._titles:
+            ws = self.sh.worksheet(STATS_TAB)
+            picked = (ws.acell("B2").value or "").strip()
+        else:
+            ws = self.sh.add_worksheet(title=STATS_TAB, rows=30, cols=STATS_COLS)
+            self._titles.add(STATS_TAB)
+            picked = ""
+        grid = stats_values()
+        grid[1][1] = picked if picked in names else default_season
+        ws.batch_clear([f"A1:{_letter(STATS_COLS - 1)}{ws.row_count}"])
+        ws.update(range_name="A1", values=grid, value_input_option="USER_ENTERED")
+        return ws
 
     # ---- seasons -----------------------------------------------------------
     def seasons(self) -> list[Season]:
