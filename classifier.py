@@ -1,15 +1,14 @@
-"""Classify recruiting emails with Claude Haiku (structured output)."""
+"""Classify recruiting emails with an LLM: Anthropic natively, or any OpenAI-compatible API."""
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 
-import anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
-from config import CACHE_DIR
+from config import CACHE_DIR, LLMConfig
 from gmail_client import Email
 
-MODEL = "claude-haiku-5-5"
 CACHE_FILE = CACHE_DIR / "classifications.json"
 
 Stage = Literal["Applied", "OA", "Interview", "Offer", "Rejected", "Withdrawn", "Other"]
@@ -55,32 +54,118 @@ def _save_cache(cache: dict) -> None:
     CACHE_FILE.write_text(json.dumps(cache))
 
 
-def _classify_one(client: anthropic.Anthropic, email: Email) -> Optional[Classification]:
-    content = (
-        f"From: {email.sender}\nSubject: {email.subject}\nDate: {email.date:%Y-%m-%d}\n\n{email.body}"
-    )
+def _email_text(email: Email) -> str:
+    return f"From: {email.sender}\nSubject: {email.subject}\nDate: {email.date:%Y-%m-%d}\n\n{email.body}"
+
+
+def _warn(email: Email, msg: str) -> None:
+    print(f"  ! {msg} on '{email.subject[:60]}'")
+
+
+def _api_key(cfg: LLMConfig) -> Optional[str]:
+    if not cfg.api_key_env:
+        return None
+    key = os.environ.get(cfg.api_key_env)
+    if not key:
+        raise SystemExit(f"Set {cfg.api_key_env} in .env for provider {cfg.provider}.")
+    return key
+
+
+def _anthropic_classifier(cfg: LLMConfig) -> Callable[[Email], Optional[Classification]]:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=_api_key(cfg))
+
+    def classify(email: Email) -> Optional[Classification]:
+        try:
+            resp = client.messages.parse(
+                model=cfg.model,
+                max_tokens=2048,
+                system=SYSTEM,
+                messages=[{"role": "user", "content": _email_text(email)}],
+                output_format=Classification,
+                output_config={"effort": "low"},
+            )
+        except anthropic.APIStatusError as e:
+            _warn(email, f"API error {e.status_code} {e.message}")
+            return None
+        except anthropic.APIConnectionError as e:
+            _warn(email, f"Connection error {e}")
+            return None
+        if resp.stop_reason != "end_turn" or resp.parsed_output is None:
+            _warn(email, f"No result (stop_reason={resp.stop_reason})")
+            return None
+        return resp.parsed_output
+
+    return classify
+
+
+def json_schema() -> dict:
+    """Classification schema in the strict form OpenAI-style structured outputs expect."""
+    schema = Classification.model_json_schema()
+    schema["additionalProperties"] = False
+    schema["required"] = list(schema["properties"])
+    return schema
+
+
+def parse_json_reply(text: str) -> Optional[Classification]:
+    """Validate a model's JSON reply, tolerating ```json fences some models add."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[text.index("{"):] if "{" in text else text
+    if "{" in text and "}" in text:
+        text = text[text.index("{"): text.rindex("}") + 1]
     try:
-        resp = client.messages.parse(
-            model=MODEL,
-            max_tokens=2048,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": content}],
-            output_format=Classification,
-            output_config={"effort": "low"},
-        )
-    except anthropic.APIStatusError as e:
-        print(f"  ! Claude error on '{email.subject[:60]}': {e.status_code} {e.message}")
+        return Classification.model_validate_json(text)
+    except ValidationError:
         return None
-    except anthropic.APIConnectionError as e:
-        print(f"  ! Connection error on '{email.subject[:60]}': {e}")
-        return None
-    if resp.stop_reason != "end_turn" or resp.parsed_output is None:
-        print(f"  ! Could not classify '{email.subject[:60]}' (stop_reason={resp.stop_reason})")
-        return None
-    return resp.parsed_output
 
 
-def classify_all(emails: list[Email], workers: int) -> dict[str, Optional[Classification]]:
+def _openai_classifier(cfg: LLMConfig) -> Callable[[Email], Optional[Classification]]:
+    import openai
+
+    client = openai.OpenAI(api_key=_api_key(cfg) or "not-needed", base_url=cfg.base_url)
+    system = (SYSTEM + "\n\nReply with only a JSON object matching this schema:\n"
+              + json.dumps(json_schema()))
+    # Strict JSON-schema mode where the server supports it; plain JSON mode elsewhere.
+    formats = [{"type": "json_schema", "json_schema": {"name": "classification", "schema": json_schema(),
+                                                       "strict": True}},
+               {"type": "json_object"}]
+    state = {"format": 0}
+
+    def classify(email: Email) -> Optional[Classification]:
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": _email_text(email)}]
+        while True:
+            try:
+                resp = client.chat.completions.create(
+                    model=cfg.model, messages=messages, response_format=formats[state["format"]])
+                break
+            except openai.BadRequestError as e:
+                if state["format"] + 1 < len(formats):
+                    state["format"] += 1  # server doesn't support this response_format; fall back
+                    continue
+                _warn(email, f"API error {e.status_code} {e.message}")
+                return None
+            except openai.APIStatusError as e:
+                _warn(email, f"API error {e.status_code} {e.message}")
+                return None
+            except openai.APIConnectionError as e:
+                _warn(email, f"Connection error {e}")
+                return None
+        result = parse_json_reply(resp.choices[0].message.content if resp.choices else "")
+        if result is None:
+            _warn(email, "Reply wasn't valid JSON")
+        return result
+
+    return classify
+
+
+def make_classifier(cfg: LLMConfig) -> Callable[[Email], Optional[Classification]]:
+    return _anthropic_classifier(cfg) if cfg.provider == "anthropic" else _openai_classifier(cfg)
+
+
+def classify_all(emails: list[Email], workers: int, llm: LLMConfig) -> dict[str, Optional[Classification]]:
     """Returns {message_id: Classification or None}. Results are cached on disk so reruns are free."""
     cache = _load_cache()
     results: dict[str, Optional[Classification]] = {}
@@ -91,10 +176,11 @@ def classify_all(emails: list[Email], workers: int) -> dict[str, Optional[Classi
         else:
             todo.append(e)
     if todo:
-        print(f"Classifying {len(todo)} emails with {MODEL} ({len(emails) - len(todo)} cached)...")
-        client = anthropic.Anthropic()
+        print(f"Classifying {len(todo)} emails with {llm.provider}/{llm.model} "
+              f"({len(emails) - len(todo)} cached)...")
+        classify = make_classifier(llm)
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for i, (e, c) in enumerate(zip(todo, pool.map(lambda em: _classify_one(client, em), todo)), 1):
+            for i, (e, c) in enumerate(zip(todo, pool.map(classify, todo)), 1):
                 results[e.id] = c
                 if c is not None:
                     cache[e.id] = c.model_dump()

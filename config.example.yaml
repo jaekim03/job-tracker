@@ -3,17 +3,26 @@
 # The ID in your sheet's URL: docs.google.com/spreadsheets/d/<THIS PART>/edit
 spreadsheet_id: "PASTE_SPREADSHEET_ID_HERE"
 
+# AI model that reads each email. provider is one of:
+#   anthropic, openai, gemini, groq, openrouter, ollama, openai-compatible
+# Put the matching API key in .env (see README). Ollama runs locally and needs no key.
+llm:
+  provider: anthropic
+  model: claude-haiku-5-5
+  # base_url: http://localhost:8000/v1   # only for openai-compatible
+  # api_key_env: MY_KEY_VAR              # only to read the key from a different env var
+
 # Applied/OA rows with no new email for this many days become "Ghosted".
 ghosted_days: 60
 
 # Email bodies are cut to this many characters before classification (keeps cost low).
 max_body_chars: 4000
 
-# Parallel Claude requests during classification.
+# Parallel AI requests during classification (use 1-2 for a local model).
 workers: 8
 
 # Gmail search used to find candidate emails. The script appends "after:<date>".
-# Claude filters out anything that isn't about one of your applications.
+# The AI filters out anything that isn't about one of your applications.
 gmail_query: >-
   (from:(greenhouse.io OR greenhouse-mail.io OR lever.co OR hire.lever.co OR myworkday.com
   OR myworkdayjobs.com OR ashbyhq.com OR smartrecruiters.com OR icims.com OR jobvite.com

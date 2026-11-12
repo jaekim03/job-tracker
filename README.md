@@ -2,7 +2,7 @@
 
 Keeps a Google Sheet of your job applications up to date by reading your Gmail.
 
-Each run finds recruiting emails, asks Claude Haiku what each one means, and updates the sheet: one tab per recruiting season, one row per company and role.
+Each run finds recruiting emails, asks an AI model what each one means, and updates the sheet: one tab per recruiting season, one row per company and role.
 
 | Company | Role | Stage | Date Applied | Last Update | Gmail Link | Notes |
 |---|---|---|---|---|---|---|
@@ -14,7 +14,7 @@ A **Stats** tab shows totals, response, OA and interview rates, and a breakdown 
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic API key](https://platform.claude.com).
+You need [uv](https://docs.astral.sh/uv/), a Google account, and an API key for an AI provider (or [Ollama](https://ollama.com) to run a model locally for free).
 
 1. **Install**
    ```bash
@@ -26,14 +26,31 @@ You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic AP
    - Create a project and enable the **Gmail API** and **Google Sheets API**.
    - Set up the OAuth consent screen as **External** and add your email as a **test user**.
    - Create an OAuth client ID of type **Desktop app**, download the JSON and save it as `credentials.json` in this folder.
-3. **Anthropic API key**
-   ```bash
-   echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
-   ```
-4. **Sheet**: create a blank Google Sheet, then copy the config and paste the sheet's link into `spreadsheet_id`.
+3. **Config**: create a blank Google Sheet, then copy the config and paste the sheet's link into `spreadsheet_id`.
    ```bash
    cp config.example.yaml config.yaml
    ```
+4. **AI provider**: pick one in the `llm` section of `config.yaml` and put its key in `.env`.
+   ```yaml
+   llm:
+     provider: anthropic        # see the table below
+     model: claude-haiku-5-5    # any model your provider offers
+   ```
+   ```bash
+   echo 'ANTHROPIC_API_KEY=...' > .env
+   ```
+
+   | `provider` | Key in `.env` |
+   |---|---|
+   | `anthropic` (default) | `ANTHROPIC_API_KEY` |
+   | `openai` | `OPENAI_API_KEY` |
+   | `gemini` | `GEMINI_API_KEY` |
+   | `groq` | `GROQ_API_KEY` |
+   | `openrouter` | `OPENROUTER_API_KEY` |
+   | `ollama` (local, free) | none |
+   | `openai-compatible` (any other server, set `base_url`) | `LLM_API_KEY` |
+
+   A small, cheap model is plenty. With `anthropic`, `model` can be left out and defaults to `claude-haiku-5-5`.
 5. **Log in and create your first season**
    ```bash
    uv run track.py auth
@@ -68,7 +85,9 @@ The first run scans from the season's start date. Later runs only look at new em
 
 ## Cost
 
-About $0.0002–0.0005 per email with Claude Haiku 5.5. The Gmail and Sheets APIs are free.
+The Gmail and Sheets APIs are free, so cost depends on the AI model. With Claude Haiku 5.5 it's about $0.0002–0.0005 per email, under $1 for a whole recruiting season. A local model through Ollama costs nothing, but runs slower (set `workers: 1` or `2`).
+
+Each email is classified once and cached in `.cache/`, so reruns are free. Switching providers only affects new emails.
 
 ## Tests
 

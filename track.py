@@ -85,7 +85,7 @@ def cmd_run(args) -> None:
             print(f"  fetched {n}/{len(ids)}")
     emails.sort(key=lambda e: e.date)
 
-    results = classify_all(emails, cfg.workers)
+    results = classify_all(emails, cfg.workers, cfg.llm)
     rows = store.load_rows(seasons)
     log: list[tuple[str, date, str]] = []
 
