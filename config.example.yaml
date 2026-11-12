@@ -1,0 +1,26 @@
+# Copy to config.yaml and fill in spreadsheet_id.
+
+# The ID in your sheet's URL: docs.google.com/spreadsheets/d/<THIS PART>/edit
+spreadsheet_id: "PASTE_SPREADSHEET_ID_HERE"
+
+# Applied/OA rows with no new email for this many days become "Ghosted".
+ghosted_days: 30
+
+# Classifications below this confidence get "Needs Review" checked.
+review_threshold: 0.7
+
+# Email bodies are cut to this many characters before classification (keeps cost low).
+max_body_chars: 4000
+
+# Parallel Claude requests during classification.
+workers: 8
+
+# Gmail search used to find candidate emails. The script appends "after:<date>".
+# Claude filters out anything that isn't about one of your applications.
+gmail_query: >-
+  (from:(greenhouse.io OR greenhouse-mail.io OR lever.co OR hire.lever.co OR myworkday.com
+  OR myworkdayjobs.com OR ashbyhq.com OR smartrecruiters.com OR icims.com OR jobvite.com
+  OR taleo.net OR successfactors.com OR workablemail.com OR hackerrank.com OR codesignal.com)
+  OR subject:(application OR applying OR applied OR interview OR assessment OR "next steps"
+  OR candidacy OR offer OR "thank you for your interest" OR "your candidacy"))
+  -in:chats -in:spam -in:trash -category:promotions

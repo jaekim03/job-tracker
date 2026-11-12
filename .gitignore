@@ -1,0 +1,12 @@
+# Secrets / personal data: never commit
+credentials.json
+token.json
+.env
+config.yaml
+.cache/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.DS_Store

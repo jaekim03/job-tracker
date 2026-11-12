@@ -1,0 +1,147 @@
+"""Match classified emails to tracker rows and apply stage changes. Pure logic, no I/O."""
+import re
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from difflib import SequenceMatcher
+from typing import Optional
+
+HEADERS = [
+    "Company", "Role", "Stage", "Date Applied", "Last Update", "Last Email Subject",
+    "Gmail Link", "Locked", "Needs Review", "Notes", "Thread IDs",
+]
+STAGES = ["Applied", "OA", "Interview", "Offer", "Rejected", "Withdrawn", "Ghosted"]
+PROGRESS_RANK = {"Applied": 0, "OA": 1, "Interview": 2, "Offer": 3}
+TERMINAL = {"Rejected", "Withdrawn"}
+
+_SUFFIXES = r"\b(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|plc|gmbh|the)\b"
+
+
+@dataclass
+class AppRow:
+    tab: str
+    row_num: Optional[int]  # 1-based sheet row; None = new, not yet written
+    company: str = ""
+    role: str = ""
+    stage: str = ""
+    date_applied: str = ""
+    last_update: str = ""
+    last_subject: str = ""
+    gmail_link: str = ""
+    locked: bool = False
+    needs_review: bool = False
+    notes: str = ""
+    thread_ids: list[str] = field(default_factory=list)
+    dirty: bool = False
+
+    @classmethod
+    def from_values(cls, tab: str, row_num: int, values: list[str]) -> "AppRow":
+        v = (values + [""] * len(HEADERS))[: len(HEADERS)]
+        return cls(
+            tab=tab, row_num=row_num, company=v[0], role=v[1], stage=v[2], date_applied=v[3],
+            last_update=v[4], last_subject=v[5], gmail_link=v[6],
+            locked=v[7].strip().upper() == "TRUE", needs_review=v[8].strip().upper() == "TRUE",
+            notes=v[9], thread_ids=[t for t in v[10].replace(" ", "").split(",") if t],
+        )
+
+    def to_values(self) -> list:
+        return [
+            self.company, self.role, self.stage, self.date_applied, self.last_update, self.last_subject,
+            self.gmail_link, self.locked, self.needs_review, self.notes, ",".join(self.thread_ids),
+        ]
+
+
+def normalize_company(name: str) -> str:
+    s = re.sub(r"[^a-z0-9 ]", " ", name.lower())
+    s = re.sub(_SUFFIXES, " ", s)
+    return re.sub(r"\s+", "", s)
+
+
+def _role_sim(a: str, b: str) -> float:
+    a, b = a.lower().strip(), b.lower().strip()
+    return SequenceMatcher(None, a, b).ratio() if a and b else 0.0
+
+
+def parse_date(s: str) -> Optional[date]:
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s.strip(), fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def find_row(rows: list[AppRow], company: str, role: str, thread_id: str) -> Optional[AppRow]:
+    for r in rows:
+        if thread_id in r.thread_ids:
+            return r
+    key = normalize_company(company)
+    if not key:
+        return None
+    same = [r for r in rows if normalize_company(r.company) == key]
+    if not same:
+        return None
+    if role:
+        best = max(same, key=lambda r: _role_sim(r.role, role))
+        if _role_sim(best.role, role) >= 0.6:
+            return best
+        blank = [r for r in same if not r.role]
+        return blank[0] if len(blank) == 1 else None
+    open_rows = [r for r in same if r.stage not in TERMINAL]
+    if len(open_rows) == 1:
+        return open_rows[0]
+    return same[0] if len(same) == 1 else None
+
+
+def next_stage(current: str, new: str) -> str:
+    """Stages only move forward; Rejected/Withdrawn are final; Ghosted revives on any new email."""
+    if new == "Other":
+        return current
+    if not current or current == "Ghosted":
+        return new
+    if current in TERMINAL:
+        return current
+    if new in TERMINAL:
+        return new
+    if PROGRESS_RANK.get(new, -1) > PROGRESS_RANK.get(current, -1):
+        return new
+    return current
+
+
+def apply_email(row: AppRow, cls, email, review_threshold: float) -> list[str]:
+    """Update row in place from one classified email. Returns human-readable change notes."""
+    changes = []
+    if row.locked:
+        return ["locked, skipped"]
+    d = f"{email.date:%Y-%m-%d}"
+    stage = next_stage(row.stage, cls.stage)
+    if stage != row.stage:
+        changes.append(f"stage {row.stage or '-'} -> {stage}")
+        row.stage = stage
+    if cls.stage == "Applied" and not row.date_applied:
+        row.date_applied = d
+    if not row.company and cls.company:
+        row.company = cls.company
+    if not row.role and cls.role:
+        row.role = cls.role
+        changes.append(f"role = {cls.role}")
+    last = parse_date(row.last_update)
+    if last is None or email.date.date() >= last:
+        row.last_update, row.last_subject, row.gmail_link = d, email.subject, email.link
+    if email.thread_id not in row.thread_ids:
+        row.thread_ids.append(email.thread_id)
+    if cls.confidence < review_threshold or not row.company:
+        row.needs_review = True
+    row.dirty = True
+    return changes
+
+
+def mark_ghosted(rows: list[AppRow], days: int, today: date) -> list[AppRow]:
+    out = []
+    for r in rows:
+        if r.locked or r.stage not in ("Applied", "OA"):
+            continue
+        last = parse_date(r.last_update) or parse_date(r.date_applied)
+        if last and today - last > timedelta(days=days):
+            r.stage, r.dirty = "Ghosted", True
+            out.append(r)
+    return out
