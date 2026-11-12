@@ -152,7 +152,7 @@ def test_stats_layout():
     from sheet_style import KPI_ROW, KPIS, STAGE_ROW, STATS_COLS, stats_values
     grid = stats_values()
     assert all(len(r) == STATS_COLS for r in grid)
-    assert grid[KPI_ROW - 2] == KPIS
+    assert grid[KPI_ROW - 2] == KPIS and "Response rate" not in KPIS
     assert [grid[STAGE_ROW - 1 + i][0] for i in range(len(STAGES))] == STAGES
     # Formulas read the season picked in B2, using the Stage (C) and Reached (I) columns
     assert "$B$2" in grid[KPI_ROW - 1][0] and "!I2:I" in grid[KPI_ROW - 1][3]

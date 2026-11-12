@@ -155,7 +155,7 @@ def plain_tab_requests(sheet_id: int, row_count: int, n_cols: int) -> list[dict]
 
 # ---- Stats tab ---------------------------------------------------------------
 STATS_TAB = "Stats"
-KPIS = ["Applications", "Active", "Response rate", "OA rate", "Interview rate", "Offers"]
+KPIS = ["Applications", "Active", "OA rate", "Interview rate", "Offers", ""]
 KPI_ROW = 5            # 1-based row with the big numbers (labels sit one row above)
 STAGE_ROW = 8          # first row of the by-stage table (header sits one row above)
 STATS_COLS = 6
@@ -170,16 +170,14 @@ def stats_values() -> list[list[str]]:
     """Cell contents for the Stats tab. Everything recalculates from the season picked in B2."""
     company, stage, reached = _season_col("Company"), _season_col("Stage"), _season_col("Reached")
     apps = f"$A${KPI_ROW}"
-    only_applied = lambda s: f'COUNTIFS({reached},"Applied",{stage},"{s}")'
-    responded = f"{apps}-{only_applied('Applied')}-{only_applied('Ghosted')}-{only_applied('Withdrawn')}"
     rate = lambda count: f"=IFERROR(({count})/{apps},0)"
     kpis = [
         f"=COUNTA({company})",
         f'=ARRAYFORMULA(SUM(COUNTIF({stage},{{"Applied","OA","Interview","Offer"}})))',
-        rate(responded),
         rate(f'COUNTIF({reached},"*OA*")'),
         rate(f'COUNTIF({reached},"*Interview*")'),
         f'=COUNTIF({reached},"*Offer*")',
+        "",
     ]
     first, last = STAGE_ROW, STAGE_ROW + len(STAGES) - 1
     grid = [
@@ -239,7 +237,7 @@ def stats_tab_requests(sheet_id: int, row_count: int) -> list[dict]:
         fmt(rng(kpi, kpi + 1, 0, STATS_COLS),
             {"textFormat": _text(INK, fontFamily=FONT, fontSize=24, bold=True), "numberFormat": {"type": "NUMBER", "pattern": "0"}},
             "textFormat,numberFormat"),
-        fmt(rng(kpi, kpi + 1, 2, 5), {"numberFormat": {"type": "PERCENT", "pattern": "0%"}}, "numberFormat"),
+        fmt(rng(kpi, kpi + 1, 2, 4), {"numberFormat": {"type": "PERCENT", "pattern": "0%"}}, "numberFormat"),
         {"updateBorders": {"range": rng(kpi - 1, kpi + 1, 0, STATS_COLS),
                            "top": {"style": "SOLID", "colorStyle": _rgb(RULE)},
                            "bottom": {"style": "SOLID", "colorStyle": _rgb(RULE)}}},

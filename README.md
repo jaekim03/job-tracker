@@ -10,7 +10,7 @@ Each run finds recruiting emails, asks an AI model what each one means, and upda
 
 **Stages:** Applied → OA → Interview → Offer, plus Rejected, Withdrawn and Ghosted (no email for 60 days).
 
-A **Stats** tab shows totals, response, OA and interview rates, and a breakdown by stage. A **Pipeline** menu draws a flow chart of where your applications went.
+A **Stats** tab shows totals, OA and interview rates, offers, and a breakdown by stage. A **Pipeline** menu draws a flow chart of where your applications went.
 
 ## Setup
 
