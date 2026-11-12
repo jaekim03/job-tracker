@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from classifier import Classification
 from gmail_client import Email, _body_text
-from matcher import (AppRow, apply_email, find_row, is_reapplication, mark_ghosted, next_stage,
+from matcher import (HEADERS, AppRow, apply_email, find_row, is_reapplication, mark_ghosted, next_stage,
                      normalize_company)
 
 
@@ -13,8 +13,8 @@ def email(day: str, thread="t1", subject="s"):
                  sender="x", subject=subject, body="")
 
 
-def cls(company, role, stage, conf=0.9):
-    return Classification(is_application_email=True, company=company, role=role, stage=stage, confidence=conf)
+def cls(company, role, stage):
+    return Classification(is_application_email=True, company=company, role=role, stage=stage)
 
 
 def test_normalize_company():
@@ -35,13 +35,13 @@ def test_full_lifecycle_and_matching():
     rows = []
     r = AppRow(tab="Fall 2026", row_num=None)
     rows.append(r)
-    apply_email(r, cls("Stripe Inc", "Software Engineer Intern", "Applied"), email("2026-08-05"), 0.7)
+    apply_email(r, cls("Stripe Inc", "Software Engineer Intern", "Applied"), email("2026-08-05"))
     assert (r.stage, r.date_applied) == ("Applied", "2026-08-05")
 
     # Different thread, same company, similar role -> same row
     m = find_row(rows, "Stripe", "Software Engineering Intern", "t2")
     assert m is r
-    apply_email(m, cls("Stripe", "", "Interview"), email("2026-09-01", "t2"), 0.7)
+    apply_email(m, cls("Stripe", "", "Interview"), email("2026-09-01", "t2"))
     assert r.stage == "Interview" and r.thread_ids == ["t1", "t2"]
 
     # Different role at same company -> no match
@@ -55,7 +55,7 @@ def test_different_roles_same_company_and_thread_stay_separate():
     r = AppRow(tab="F", row_num=None)
     rows.append(r)
     apply_email(r, cls("Tesla", "Internship, Software Integration Engineer, Service Tooling (Fall 2026)", "Rejected"),
-                email("2026-08-01", "tesla-thread"), 0.7)
+                email("2026-08-01", "tesla-thread"))
     other = "Internship, Software Engineer, Maps & Navigation Validation (Fall 2026)"
     assert find_row(rows, "Tesla", other, "tesla-thread") is None
     assert find_row(rows, "Tesla", "Software Integration Engineer Intern, Service Tooling", "x") is r
@@ -68,22 +68,16 @@ def test_reapplication_after_rejection():
     assert not is_reapplication(r, "Interview", date(2026, 10, 9))
 
 
-def test_has_data_ignores_checkboxes():
+def test_has_data_needs_company_role_or_stage():
     from sheets import _has_data
-    assert not _has_data(["", "", "", "", "", "", "", "FALSE", "FALSE", "", ""])
-    assert _has_data(["Acme", "", "", "", "", "", "", "FALSE", "FALSE", "", ""])
+    assert not _has_data(["", "", "", "", "", "", "a note", ""])
+    assert _has_data(["Acme", "", "", "", "", "", "", ""])
 
 
-def test_locked_row_untouched():
-    r = AppRow(tab="F", row_num=2, company="Acme", stage="Interview", locked=True)
-    apply_email(r, cls("Acme", "", "Rejected"), email("2026-10-01"), 0.7)
-    assert r.stage == "Interview" and not r.dirty
-
-
-def test_low_confidence_flags_review():
-    r = AppRow(tab="F", row_num=None)
-    apply_email(r, cls("Acme", "PM", "Applied", conf=0.4), email("2026-10-01"), 0.7)
-    assert r.needs_review
+def test_manual_stage_edit_survives_older_stage_email():
+    r = AppRow(tab="F", row_num=2, company="Acme", stage="Withdrawn", last_update="2026-09-01")
+    apply_email(r, cls("Acme", "", "Interview"), email("2026-10-01"))
+    assert r.stage == "Withdrawn"
 
 
 def test_ghosted():
@@ -95,9 +89,11 @@ def test_ghosted():
 
 
 def test_row_roundtrip():
-    r = AppRow(tab="F", row_num=5, company="A", role="R", stage="OA", locked=True, thread_ids=["a", "b"])
-    back = AppRow.from_values("F", 5, ["TRUE" if v is True else "FALSE" if v is False else v for v in r.to_values()])
-    assert (back.company, back.locked, back.thread_ids) == ("A", True, ["a", "b"])
+    r = AppRow(tab="F", row_num=5, company="A", role="R", stage="OA", gmail_link="L", notes="n",
+               thread_ids=["a", "b"])
+    assert len(r.to_values()) == len(HEADERS)
+    back = AppRow.from_values("F", 5, r.to_values())
+    assert (back.company, back.gmail_link, back.notes, back.thread_ids) == ("A", "L", "n", ["a", "b"])
 
 
 def test_body_html_fallback():

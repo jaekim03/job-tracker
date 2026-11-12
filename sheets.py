@@ -16,7 +16,7 @@ LAST_COL = chr(ord("A") + len(HEADERS) - 1)
 
 
 def _has_data(values: list[str]) -> bool:
-    """A row counts as filled if Company, Role, or Stage is set (checkbox columns alone read as FALSE)."""
+    """A row counts as filled if Company, Role, or Stage is set (ignores stray values in other columns)."""
     v = values + ["", "", ""]
     return any(c.strip() for c in v[:3])
 
@@ -58,11 +58,8 @@ class Store:
         stage_rule = {"condition": {"type": "ONE_OF_LIST",
                                     "values": [{"userEnteredValue": s} for s in STAGES]},
                       "showCustomUi": True, "strict": False}
-        checkbox = {"condition": {"type": "BOOLEAN"}}
         self.sh.batch_update({"requests": [
             {"setDataValidation": {"range": col_range(2), "rule": stage_rule}},
-            {"setDataValidation": {"range": col_range(HEADERS.index("Locked")), "rule": checkbox}},
-            {"setDataValidation": {"range": col_range(HEADERS.index("Needs Review")), "rule": checkbox}},
             {"updateDimensionProperties": {
                 "range": {"sheetId": ws.id, "dimension": "COLUMNS",
                           "startIndex": THREAD_COL, "endIndex": THREAD_COL + 1},
@@ -130,8 +127,8 @@ class Store:
                 ws.batch_update(updates, value_input_option="RAW")
             new = [r for r in tab_rows if not r.row_num]
             if new:
-                # Write explicitly after the last real row: append_rows would skip past
-                # empty-but-checkbox rows (they read as FALSE) to the bottom of the sheet.
+                # Write explicitly after the last real row rather than relying on append_rows,
+                # which is thrown off by stray values or validation in otherwise empty rows.
                 start = self._next_free_row(ws)
                 end = start + len(new) - 1
                 if end > ws.row_count:

@@ -22,7 +22,6 @@ class Classification(BaseModel):
     company: str = Field(description="Hiring company name, not the ATS vendor. Empty string if unknown.")
     role: str = Field(description="Job title as written in the email. Empty string if not mentioned.")
     stage: Stage
-    confidence: float = Field(description="0.0-1.0 confidence in company + stage.")
 
 
 SYSTEM = """You classify emails in a job seeker's inbox for an application tracker.

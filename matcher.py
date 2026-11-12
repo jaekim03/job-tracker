@@ -6,7 +6,7 @@ from typing import Optional
 
 HEADERS = [
     "Company", "Role", "Stage", "Date Applied", "Last Update",
-    "Gmail Link", "Locked", "Needs Review", "Notes", "Thread IDs",
+    "Gmail Link", "Notes", "Thread IDs",
 ]
 THREAD_COL = HEADERS.index("Thread IDs")  # hidden in the sheet; only used for matching
 STAGES = ["Applied", "OA", "Interview", "Offer", "Rejected", "Withdrawn", "Ghosted"]
@@ -26,8 +26,6 @@ class AppRow:
     date_applied: str = ""
     last_update: str = ""
     gmail_link: str = ""
-    locked: bool = False
-    needs_review: bool = False
     notes: str = ""
     thread_ids: list[str] = field(default_factory=list)
     dirty: bool = False
@@ -38,14 +36,13 @@ class AppRow:
         return cls(
             tab=tab, row_num=row_num, company=v[0], role=v[1], stage=v[2], date_applied=v[3],
             last_update=v[4], gmail_link=v[5],
-            locked=v[6].strip().upper() == "TRUE", needs_review=v[7].strip().upper() == "TRUE",
-            notes=v[8], thread_ids=[t for t in v[9].replace(" ", "").split(",") if t],
+            notes=v[6], thread_ids=[t for t in v[7].replace(" ", "").split(",") if t],
         )
 
     def to_values(self) -> list:
         return [
             self.company, self.role, self.stage, self.date_applied, self.last_update,
-            self.gmail_link, self.locked, self.needs_review, self.notes, ",".join(self.thread_ids),
+            self.gmail_link, self.notes, ",".join(self.thread_ids),
         ]
 
 
@@ -140,11 +137,9 @@ def next_stage(current: str, new: str) -> str:
     return current
 
 
-def apply_email(row: AppRow, cls, email, review_threshold: float) -> list[str]:
+def apply_email(row: AppRow, cls, email) -> list[str]:
     """Update row in place from one classified email. Returns human-readable change notes."""
     changes = []
-    if row.locked:
-        return ["locked, skipped"]
     d = f"{email.date:%Y-%m-%d}"
     stage = next_stage(row.stage, cls.stage)
     if stage != row.stage:
@@ -162,8 +157,6 @@ def apply_email(row: AppRow, cls, email, review_threshold: float) -> list[str]:
         row.last_update, row.gmail_link = d, email.link
     if email.thread_id not in row.thread_ids:
         row.thread_ids.append(email.thread_id)
-    if cls.confidence < review_threshold or not row.company:
-        row.needs_review = True
     row.dirty = True
     return changes
 
@@ -171,7 +164,7 @@ def apply_email(row: AppRow, cls, email, review_threshold: float) -> list[str]:
 def mark_ghosted(rows: list[AppRow], days: int, today: date) -> list[AppRow]:
     out = []
     for r in rows:
-        if r.locked or r.stage not in ("Applied", "OA"):
+        if r.stage not in ("Applied", "OA"):
             continue
         last = parse_date(r.last_update) or parse_date(r.date_applied)
         if last and today - last > timedelta(days=days):

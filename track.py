@@ -97,7 +97,7 @@ def cmd_run(args) -> None:
             label = "NEW"
         else:
             label = "upd"
-        changes = apply_email(row, c, e, cfg.review_threshold)
+        changes = apply_email(row, c, e)
         summary = f"{c.company or '?'} | {c.role or '-'} | {c.stage}"
         print(f"{e.date:%Y-%m-%d} {label} [{row.tab}] {summary}" + (f"  ({'; '.join(changes)})" if changes else ""))
         log.append((e.id, e.date.date(), summary))

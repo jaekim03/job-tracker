@@ -29,11 +29,10 @@ uv run track.py run                        # update the sheet
 uv run track.py new-season "Spring 2027" --start 2027-01-01 --end 2027-05-31
 ```
 
-- **Locked** checkbox: the script never touches that row. Use it after editing a row by hand.
-- **Needs Review**: low-confidence classification; check it.
+- Edit any row by hand. The script only changes a row when a new email for that application arrives, and stages only move forward.
 - Late emails for an older season's application update that season's row; new applications go to the season containing the email date.
 - Classifications are cached in `.cache/` so reruns don't cost API calls. Processed emails are logged in the hidden `_processed` tab.
-- Only columns A–J are written (J, Thread IDs, is hidden and used for matching); add your own columns to the right.
+- Only columns A–H are written (H, Thread IDs, is hidden and used for matching); add your own columns to the right.
 
 ## Cost
 

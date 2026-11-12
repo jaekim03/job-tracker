@@ -17,7 +17,6 @@ class Config:
     spreadsheet_id: str
     gmail_query: str
     ghosted_days: int = 30
-    review_threshold: float = 0.7
     max_body_chars: int = 4000
     workers: int = 8
 
