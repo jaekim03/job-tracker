@@ -1,18 +1,44 @@
 """Google Sheets storage: Seasons tab, one tab per season, hidden _processed tab."""
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Optional
 
 import gspread
+from gspread.utils import ValueRenderOption
 
-from matcher import HEADERS, STAGES, THREAD_COL, AppRow, parse_date
+from matcher import HEADERS, AppRow, parse_date
+from sheet_style import plain_tab_requests, season_tab_requests
 
 SEASONS_TAB = "Seasons"
 PROCESSED_TAB = "_processed"
 SEASON_HEADERS = ["Name", "Start", "End", "Active"]
 PROCESSED_HEADERS = ["Message ID", "Email Date", "Processed At", "Result"]
 RESERVED = {SEASONS_TAB, PROCESSED_TAB}
-LAST_COL = chr(ord("A") + len(HEADERS) - 1)
+LINK_COL = HEADERS.index("Gmail Link")
+LINK_LABEL = "Open"
+_LINK_RE = re.compile(r'HYPERLINK\(\s*"([^"]+)"', re.I)
+
+
+def _letter(col: int) -> str:
+    return chr(ord("A") + col)
+
+
+LAST_COL = _letter(len(HEADERS) - 1)
+
+
+def link_url(cell: str) -> str:
+    """URL from a link cell, whether it holds =HYPERLINK("url","Open") or a bare URL."""
+    m = _LINK_RE.search(cell or "")
+    if m:
+        return m.group(1)
+    cell = (cell or "").strip()
+    return cell if cell.lower().startswith("http") else ""
+
+
+def link_formula(url: str) -> str:
+    """Short clickable label instead of a long URL."""
+    return f'=HYPERLINK("{url}","{LINK_LABEL}")' if url and '"' not in url else url
 
 
 def _has_data(values: list[str]) -> bool:
@@ -44,27 +70,34 @@ class Store:
         ws = self.sh.add_worksheet(title=title, rows=1000, cols=len(headers))
         ws.update(range_name="A1", values=[headers])
         ws.freeze(rows=1)
-        ws.format("1:1", {"textFormat": {"bold": True}})
         if hidden:
             ws.hide()
         self._titles.add(title)
         return ws
 
-    def _format_season_tab(self, ws) -> None:
-        def col_range(col: int) -> dict:
-            return {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": 1000,
-                    "startColumnIndex": col, "endColumnIndex": col + 1}
-
-        stage_rule = {"condition": {"type": "ONE_OF_LIST",
-                                    "values": [{"userEnteredValue": s} for s in STAGES]},
-                      "showCustomUi": True, "strict": False}
-        self.sh.batch_update({"requests": [
-            {"setDataValidation": {"range": col_range(2), "rule": stage_rule}},
-            {"updateDimensionProperties": {
-                "range": {"sheetId": ws.id, "dimension": "COLUMNS",
-                          "startIndex": THREAD_COL, "endIndex": THREAD_COL + 1},
-                "properties": {"hiddenByUser": True}, "fields": "hiddenByUser"}},
-        ]})
+    def apply_style(self) -> list[str]:
+        """(Re)apply the look to every season tab and the Seasons tab; active season goes first."""
+        meta = self.sh.fetch_sheet_metadata(
+            {"fields": "sheets(properties(sheetId),conditionalFormats)"})
+        rule_counts = {s["properties"]["sheetId"]: len(s.get("conditionalFormats", []))
+                       for s in meta["sheets"]}
+        seasons = [s for s in self.seasons() if s.name in self._titles]
+        reqs, styled = [], []
+        for s in seasons:
+            ws = self.sh.worksheet(s.name)
+            reqs += season_tab_requests(ws.id, ws.row_count, rule_counts.get(ws.id, 0))
+            styled.append(s.name)
+        if SEASONS_TAB in self._titles:
+            ws = self.sh.worksheet(SEASONS_TAB)
+            reqs += plain_tab_requests(ws.id, ws.row_count, len(SEASON_HEADERS))
+        active = next((s for s in seasons if s.active), None)
+        if active:
+            reqs.append({"updateSheetProperties": {
+                "properties": {"sheetId": self.sh.worksheet(active.name).id, "index": 0},
+                "fields": "index"}})
+        if reqs:
+            self.sh.batch_update({"requests": reqs})
+        return styled
 
     # ---- seasons -----------------------------------------------------------
     def seasons(self) -> list[Season]:
@@ -93,9 +126,9 @@ class Store:
             rows.append([s.name, s.start.isoformat(), s_end.isoformat() if s_end else "", False])
         rows.append([name, start.isoformat(), end.isoformat() if end else "", True])
         ws_seasons.update(range_name="A2", values=rows, value_input_option="RAW")
-        ws = self._ensure_tab(name, HEADERS)
-        self._format_season_tab(ws)
+        self._ensure_tab(name, HEADERS)
         self._ensure_tab(PROCESSED_TAB, PROCESSED_HEADERS, hidden=True)
+        self.apply_style()
 
     # ---- rows --------------------------------------------------------------
     def load_rows(self, seasons: list[Season]) -> list[AppRow]:
@@ -103,10 +136,17 @@ class Store:
         for s in seasons:
             if s.name not in self._titles:
                 continue
-            values = self.sh.worksheet(s.name).get_all_values()
+            ws = self.sh.worksheet(s.name)
+            values = ws.get_all_values()
+            # The link column shows a short label; the URL lives in the cell's formula.
+            col = _letter(LINK_COL)
+            formulas = ws.get(f"{col}1:{col}", value_render_option=ValueRenderOption.formula)
             for i, v in enumerate(values[1:], start=2):
                 if _has_data(v):
-                    rows.append(AppRow.from_values(s.name, i, v))
+                    row = AppRow.from_values(s.name, i, v)
+                    cell = formulas[i - 1][0] if i - 1 < len(formulas) and formulas[i - 1] else ""
+                    row.gmail_link = link_url(str(cell))
+                    rows.append(row)
         return rows
 
     def _next_free_row(self, ws) -> int:
@@ -121,10 +161,6 @@ class Store:
                 by_tab.setdefault(r.tab, []).append(r)
         for tab, tab_rows in by_tab.items():
             ws = self.sh.worksheet(tab)
-            updates = [{"range": f"A{r.row_num}:{LAST_COL}{r.row_num}", "values": [r.to_values()]}
-                       for r in tab_rows if r.row_num]
-            if updates:
-                ws.batch_update(updates, value_input_option="RAW")
             new = [r for r in tab_rows if not r.row_num]
             if new:
                 # Write explicitly after the last real row rather than relying on append_rows,
@@ -133,10 +169,18 @@ class Store:
                 end = start + len(new) - 1
                 if end > ws.row_count:
                     ws.add_rows(end - ws.row_count + 100)
-                ws.update(range_name=f"A{start}:{LAST_COL}{end}", values=[r.to_values() for r in new],
-                          value_input_option="RAW")
                 for i, r in enumerate(new):
                     r.row_num = start + i
+            # Text goes in as-is (RAW); only the link cell is a formula (USER_ENTERED).
+            before, link, after = _letter(LINK_COL - 1), _letter(LINK_COL), _letter(LINK_COL + 1)
+            raw, links = [], []
+            for r in tab_rows:
+                v, n = r.to_values(), r.row_num
+                raw.append({"range": f"A{n}:{before}{n}", "values": [v[:LINK_COL]]})
+                raw.append({"range": f"{after}{n}:{LAST_COL}{n}", "values": [v[LINK_COL + 1:]]})
+                links.append({"range": f"{link}{n}", "values": [[link_formula(v[LINK_COL])]]})
+            ws.batch_update(raw, value_input_option="RAW")
+            ws.batch_update(links, value_input_option="USER_ENTERED")
 
     # ---- processed log -----------------------------------------------------
     def processed(self) -> dict[str, date]:

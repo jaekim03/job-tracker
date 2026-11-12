@@ -100,3 +100,21 @@ def test_body_html_fallback():
     data = base64.urlsafe_b64encode(b"<p>Hello&nbsp;there</p><script>x</script>").decode()
     payload = {"mimeType": "multipart/alternative", "parts": [{"mimeType": "text/html", "body": {"data": data}}]}
     assert "Hello" in _body_text(payload) and "x" not in _body_text(payload)
+
+
+def test_link_cell_roundtrip():
+    from sheets import link_formula, link_url
+    url = "https://mail.google.com/mail/u/0/#all/abc123"
+    assert link_url(link_formula(url)) == url
+    assert link_url(url) == url          # bare URL from before the short links
+    assert link_url("Open") == "" and link_formula("") == ""
+
+
+def test_style_requests_cover_every_stage():
+    from matcher import STAGES
+    from sheet_style import STAGE_COLORS, season_tab_requests
+    assert set(STAGE_COLORS) == set(STAGES)
+    reqs = season_tab_requests(sheet_id=1, row_count=1000, existing_rules=2)
+    kinds = [next(iter(r)) for r in reqs]
+    assert kinds.count("deleteConditionalFormatRule") == 2
+    assert kinds.count("addConditionalFormatRule") == len(STAGES) + 1

@@ -3,6 +3,7 @@
   uv run track.py auth
   uv run track.py new-season "Fall 2026" --start 2026-08-01 --end 2026-12-31
   uv run track.py run [--dry-run] [--limit N] [--since YYYY-MM-DD]
+  uv run track.py style
 """
 import argparse
 from datetime import date, datetime, timedelta
@@ -31,6 +32,15 @@ def cmd_new_season(args) -> None:
     store = Store(get_credentials(), cfg.spreadsheet_id)
     store.create_season(args.name, args.start, args.end)
     print(f"Season '{args.name}' created and set active.")
+
+
+def cmd_style(_args) -> None:
+    from google_auth import get_credentials
+    from sheets import Store
+
+    cfg = load_config()
+    styled = Store(get_credentials(), cfg.spreadsheet_id).apply_style()
+    print(f"Styled: {', '.join(styled) or 'no season tabs yet'}.")
 
 
 def cmd_run(args) -> None:
@@ -131,6 +141,8 @@ def main() -> None:
     ns.add_argument("--start", type=_date, required=True)
     ns.add_argument("--end", type=_date)
     ns.set_defaults(fn=cmd_new_season)
+
+    sub.add_parser("style", help="Reapply the sheet's formatting").set_defaults(fn=cmd_style)
 
     r = sub.add_parser("run", help="Scan Gmail and update the sheet")
     r.add_argument("--dry-run", action="store_true", help="Print changes without writing")

@@ -46,6 +46,7 @@ You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic AP
 uv run track.py run --dry-run --limit 20   # preview 20 emails, writes nothing
 uv run track.py run                        # update the sheet
 uv run track.py new-season "Spring 2027" --start 2027-01-01 --end 2027-05-31
+uv run track.py style                      # reapply the sheet's formatting
 ```
 
 The first run scans from the season's start date. Later runs only look at new emails.
