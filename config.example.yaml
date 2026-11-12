@@ -4,7 +4,7 @@
 spreadsheet_id: "PASTE_SPREADSHEET_ID_HERE"
 
 # Applied/OA rows with no new email for this many days become "Ghosted".
-ghosted_days: 30
+ghosted_days: 60
 
 # Email bodies are cut to this many characters before classification (keeps cost low).
 max_body_chars: 4000

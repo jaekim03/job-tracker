@@ -18,7 +18,7 @@ def cls(company, role, stage):
 
 
 def test_normalize_company():
-    assert normalize_company("Stripe, Inc.") == normalize_company("stripe")
+    assert normalize_company("Initech, Inc.") == normalize_company("initech")
     assert normalize_company("The Walt Disney Company") == "waltdisney"
 
 
@@ -35,17 +35,17 @@ def test_full_lifecycle_and_matching():
     rows = []
     r = AppRow(tab="Fall 2026", row_num=None)
     rows.append(r)
-    apply_email(r, cls("Stripe Inc", "Software Engineer Intern", "Applied"), email("2026-08-05"))
+    apply_email(r, cls("Initech Inc", "Software Engineer Intern", "Applied"), email("2026-08-05"))
     assert (r.stage, r.date_applied) == ("Applied", "2026-08-05")
 
     # Different thread, same company, similar role -> same row
-    m = find_row(rows, "Stripe", "Software Engineering Intern", "t2")
+    m = find_row(rows, "Initech", "Software Engineering Intern", "t2")
     assert m is r
-    apply_email(m, cls("Stripe", "", "Interview"), email("2026-09-01", "t2"))
+    apply_email(m, cls("Initech", "", "Interview"), email("2026-09-01", "t2"))
     assert r.stage == "Interview" and r.thread_ids == ["t1", "t2"]
 
     # Different role at same company -> no match
-    assert find_row(rows, "Stripe", "Account Executive", "t3") is None
+    assert find_row(rows, "Initech", "Account Executive", "t3") is None
     # Thread match wins even with no company
     assert find_row(rows, "", "", "t2") is r
 
@@ -54,15 +54,15 @@ def test_different_roles_same_company_and_thread_stay_separate():
     rows = []
     r = AppRow(tab="F", row_num=None)
     rows.append(r)
-    apply_email(r, cls("Tesla", "Internship, Software Integration Engineer, Service Tooling (Fall 2026)", "Rejected"),
-                email("2026-08-01", "tesla-thread"))
+    apply_email(r, cls("Acme", "Internship, Software Integration Engineer, Service Tooling (Fall 2026)", "Rejected"),
+                email("2026-08-01", "acme-thread"))
     other = "Internship, Software Engineer, Maps & Navigation Validation (Fall 2026)"
-    assert find_row(rows, "Tesla", other, "tesla-thread") is None
-    assert find_row(rows, "Tesla", "Software Integration Engineer Intern, Service Tooling", "x") is r
+    assert find_row(rows, "Acme", other, "acme-thread") is None
+    assert find_row(rows, "Acme", "Software Integration Engineer Intern, Service Tooling", "x") is r
 
 
 def test_reapplication_after_rejection():
-    r = AppRow(tab="F", row_num=2, company="Tesla", stage="Rejected", last_update="2026-08-01")
+    r = AppRow(tab="F", row_num=2, company="Acme", stage="Rejected", last_update="2026-08-01")
     assert is_reapplication(r, "Applied", date(2026, 10, 9))
     assert not is_reapplication(r, "Applied", date(2026, 8, 5))  # same-day/near confirmation
     assert not is_reapplication(r, "Interview", date(2026, 10, 9))

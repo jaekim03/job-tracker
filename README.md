@@ -1,42 +1,69 @@
 # job-tracker
 
-Scans Gmail for job application emails, classifies them with Claude Haiku, and keeps a Google Sheet up to date: one tab per recruiting season, one row per company + role.
+Keeps a Google Sheet of your job applications up to date by reading your Gmail.
 
-Stages: Applied → OA → Interview → Offer, plus Rejected, Withdrawn, and Ghosted (no reply in 30 days).
+Each run finds recruiting emails, asks Claude Haiku what each one means, and updates the sheet: one tab per recruiting season, one row per company and role.
 
-## One-time setup
+| Company | Role | Stage | Date Applied | Last Update | Gmail Link | Notes |
+|---|---|---|---|---|---|---|
+| Acme | Software Engineer Intern | Interview | 2026-09-02 | 2026-09-20 | link | |
 
-1. **Install [uv](https://docs.astral.sh/uv/)**, then `uv sync`.
-2. **Google Cloud project** (console.cloud.google.com)
-   - Create a project → *APIs & Services* → enable **Gmail API** and **Google Sheets API**.
-   - *OAuth consent screen* → External → add your Gmail address as a **test user**.
-   - *Credentials* → Create credentials → OAuth client ID → **Desktop app** → download JSON → save as `credentials.json` in this folder.
-3. **Anthropic API key**: create one at platform.claude.com, then `echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env`
-4. **Sheet**: create a blank Google Sheet, then `cp config.example.yaml config.yaml` and paste the sheet ID.
-5. Log in and create the first season:
+**Stages:** Applied → OA → Interview → Offer, plus Rejected, Withdrawn and Ghosted (no email for 60 days).
+
+## Setup
+
+You need [uv](https://docs.astral.sh/uv/), a Google account and an [Anthropic API key](https://platform.claude.com).
+
+1. **Install**
+   ```bash
+   git clone https://github.com/jaekim03/job-tracker.git
+   cd job-tracker
+   uv sync
+   ```
+2. **Google Cloud** ([console.cloud.google.com](https://console.cloud.google.com))
+   - Create a project and enable the **Gmail API** and **Google Sheets API**.
+   - Set up the OAuth consent screen as **External** and add your email as a **test user**.
+   - Create an OAuth client ID of type **Desktop app**, download the JSON and save it as `credentials.json` in this folder.
+3. **Anthropic API key**
+   ```bash
+   echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
+   ```
+4. **Sheet**: create a blank Google Sheet, then copy the config and paste the sheet's link into `spreadsheet_id`.
+   ```bash
+   cp config.example.yaml config.yaml
+   ```
+5. **Log in and create your first season**
    ```bash
    uv run track.py auth
    uv run track.py new-season "Fall 2026" --start 2026-08-01 --end 2026-12-31
    ```
 
-> While the OAuth app is in "Testing", Google expires the login every 7 days. The script just reopens the browser to log in again when that happens.
+**School or work account?** If it won't let you create a Cloud project, create the project with a personal Google account, add your school address as a test user, and log in with the school account in step 5.
 
 ## Usage
 
 ```bash
-uv run track.py run --dry-run --limit 20   # preview on 20 emails, writes nothing
+uv run track.py run --dry-run --limit 20   # preview 20 emails, writes nothing
 uv run track.py run                        # update the sheet
 uv run track.py new-season "Spring 2027" --start 2027-01-01 --end 2027-05-31
 ```
 
-- Edit any row by hand. The script only changes a row when a new email for that application arrives, and stages only move forward.
-- Late emails for an older season's application update that season's row; new applications go to the season containing the email date.
-- Classifications are cached in `.cache/` so reruns don't cost API calls. Processed emails are logged in the hidden `_processed` tab.
-- Only columns A–H are written (H, Thread IDs, is hidden and used for matching); add your own columns to the right.
+The first run scans from the season's start date. Later runs only look at new emails.
+
+## Good to know
+
+- **Read-only Gmail.** The script can't send, change or delete email.
+- **Editing by hand is fine.** A row only changes when a new email for that application arrives, and stages only move forward.
+- **Seasons.** A late reply to an old application updates its row in the old season's tab.
+- **Re-applying.** A new confirmation more than 14 days after a rejection starts a new row.
+- **Your own columns** go to the right of column H. Column H (Thread IDs) is hidden and used for matching.
+- **Login expiry.** While the OAuth app is in "Testing", Google expires the login every 7 days. The script reopens the browser when that happens.
+- **Settings** such as `ghosted_days` and the Gmail search are in `config.yaml`.
+- **Secrets stay local.** `credentials.json`, `token.json`, `.env` and `config.yaml` are gitignored.
 
 ## Cost
 
-Claude Haiku 5.5 at low effort: roughly $0.0002–0.0005 per email. Gmail and Sheets APIs are free.
+About $0.0002–0.0005 per email with Claude Haiku 5.5. The Gmail and Sheets APIs are free.
 
 ## Tests
 

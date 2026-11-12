@@ -16,7 +16,7 @@ CACHE_DIR = ROOT / ".cache"
 class Config:
     spreadsheet_id: str
     gmail_query: str
-    ghosted_days: int = 30
+    ghosted_days: int = 60
     max_body_chars: int = 4000
     workers: int = 8
 
